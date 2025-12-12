@@ -55,6 +55,7 @@ data class ExecutionRecord(
     val endTime: Long = 0,
     val status: ExecutionStatus = ExecutionStatus.RUNNING,
     val steps: List<ExecutionStep> = emptyList(),
+    val logs: List<String> = emptyList(),
     val resultMessage: String = ""
 ) {
     val duration: Long get() = if (endTime > 0) endTime - startTime else System.currentTimeMillis() - startTime
@@ -80,6 +81,9 @@ data class ExecutionRecord(
         put("steps", JSONArray().apply {
             steps.forEach { put(it.toJson()) }
         })
+        put("logs", JSONArray().apply {
+            logs.forEach { put(it) }
+        })
     }
 
     companion object {
@@ -88,6 +92,11 @@ data class ExecutionRecord(
             val steps = mutableListOf<ExecutionStep>()
             for (i in 0 until stepsArray.length()) {
                 steps.add(ExecutionStep.fromJson(stepsArray.getJSONObject(i)))
+            }
+            val logsArray = json.optJSONArray("logs") ?: JSONArray()
+            val logs = mutableListOf<String>()
+            for (i in 0 until logsArray.length()) {
+                logs.add(logsArray.optString(i, ""))
             }
             return ExecutionRecord(
                 id = json.optString("id", UUID.randomUUID().toString()),
@@ -101,6 +110,7 @@ data class ExecutionRecord(
                     ExecutionStatus.COMPLETED
                 },
                 steps = steps,
+                logs = logs,
                 resultMessage = json.optString("resultMessage", "")
             )
         }

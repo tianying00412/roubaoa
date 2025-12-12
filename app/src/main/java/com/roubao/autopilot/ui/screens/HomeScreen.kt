@@ -63,12 +63,15 @@ fun HomeScreen(
     onExecute: (String) -> Unit,
     onStop: () -> Unit,
     shizukuAvailable: Boolean,
+    currentModel: String = "",
     onRefreshShizuku: () -> Unit = {},
-    onShizukuRequired: () -> Unit = {}
+    onShizukuRequired: () -> Unit = {},
+    isExecuting: Boolean = false
 ) {
     val colors = BaoziTheme.colors
     var inputText by remember { mutableStateOf("") }
-    val isRunning = agentState?.isRunning == true
+    // 使用 isExecuting 或 agentState?.isRunning 来判断是否运行中
+    val isRunning = isExecuting || agentState?.isRunning == true
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -153,6 +156,7 @@ fun HomeScreen(
                     logs = logs,
                     isRunning = isRunning,
                     currentStep = agentState?.currentStep ?: 0,
+                    currentModel = currentModel,
                     listState = listState,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -289,13 +293,14 @@ fun ExecutionLogView(
     logs: List<String>,
     isRunning: Boolean,
     currentStep: Int,
+    currentModel: String,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
         // 执行状态指示器
         if (isRunning) {
-            ExecutingIndicator(currentStep = currentStep)
+            ExecutingIndicator(currentStep = currentStep, currentModel = currentModel)
         }
 
         // 日志列表
@@ -314,7 +319,7 @@ fun ExecutionLogView(
 }
 
 @Composable
-fun ExecutingIndicator(currentStep: Int) {
+fun ExecutingIndicator(currentStep: Int, currentModel: String = "") {
     val colors = BaoziTheme.colors
     val infiniteTransition = rememberInfiniteTransition(label = "executing")
     val animatedProgress by infiniteTransition.animateFloat(
@@ -342,26 +347,41 @@ fun ExecutingIndicator(currentStep: Int) {
                     .padding(16.dp)
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 动画圆点
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.sweepGradient(
-                                    listOf(Primary, Secondary, Primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 动画圆点
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.sweepGradient(
+                                        listOf(Primary, Secondary, Primary)
+                                    )
                                 )
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "正在执行 Step $currentStep",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.primary
-                    )
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "正在执行 Step $currentStep",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.primary
+                        )
+                    }
+                    // 显示当前模型
+                    if (currentModel.isNotEmpty()) {
+                        Text(
+                            text = currentModel,
+                            fontSize = 11.sp,
+                            color = colors.textHint,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

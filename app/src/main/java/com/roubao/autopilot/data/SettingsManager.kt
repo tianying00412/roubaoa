@@ -63,7 +63,9 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val hasSeenOnboarding: Boolean = false,
     val maxSteps: Int = 25,
-    val cloudCrashReportEnabled: Boolean = true // 云端崩溃上报，默认开启
+    val cloudCrashReportEnabled: Boolean = true, // 云端崩溃上报，默认开启
+    val rootModeEnabled: Boolean = false, // Shizuku Root 模式
+    val suCommandEnabled: Boolean = false // 允许 su -c 命令（需要 Root 模式开启）
 )
 
 /**
@@ -133,7 +135,9 @@ class SettingsManager(context: Context) {
             themeMode = themeMode,
             hasSeenOnboarding = prefs.getBoolean("has_seen_onboarding", false),
             maxSteps = prefs.getInt("max_steps", 25),
-            cloudCrashReportEnabled = prefs.getBoolean("cloud_crash_report_enabled", true)
+            cloudCrashReportEnabled = prefs.getBoolean("cloud_crash_report_enabled", true),
+            rootModeEnabled = prefs.getBoolean("root_mode_enabled", false),
+            suCommandEnabled = prefs.getBoolean("su_command_enabled", false)
         )
     }
 
@@ -216,5 +220,19 @@ class SettingsManager(context: Context) {
     fun updateCloudCrashReportEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("cloud_crash_report_enabled", enabled).apply()
         _settings.value = _settings.value.copy(cloudCrashReportEnabled = enabled)
+    }
+
+    fun updateRootModeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("root_mode_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(rootModeEnabled = enabled)
+        // 关闭 Root 模式时，同时关闭 su -c
+        if (!enabled) {
+            updateSuCommandEnabled(false)
+        }
+    }
+
+    fun updateSuCommandEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("su_command_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(suCommandEnabled = enabled)
     }
 }

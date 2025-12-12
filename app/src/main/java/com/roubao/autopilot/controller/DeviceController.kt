@@ -109,6 +109,36 @@ class DeviceController(private val context: Context? = null) {
     }
 
     /**
+     * Shizuku 权限级别
+     */
+    enum class ShizukuPrivilegeLevel {
+        NONE,       // 未连接
+        ADB,        // ADB 模式 (UID 2000)
+        ROOT        // Root 模式 (UID 0)
+    }
+
+    /**
+     * 获取当前 Shizuku 权限级别
+     * UID 0 = root, UID 2000 = shell (ADB)
+     */
+    fun getShizukuPrivilegeLevel(): ShizukuPrivilegeLevel {
+        if (!isAvailable()) {
+            return ShizukuPrivilegeLevel.NONE
+        }
+        return try {
+            val uid = Shizuku.getUid()
+            println("[DeviceController] Shizuku UID: $uid")
+            when (uid) {
+                0 -> ShizukuPrivilegeLevel.ROOT
+                else -> ShizukuPrivilegeLevel.ADB
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ShizukuPrivilegeLevel.NONE
+        }
+    }
+
+    /**
      * 执行 shell 命令 (本地，无权限)
      */
     private fun execLocal(command: String): String {

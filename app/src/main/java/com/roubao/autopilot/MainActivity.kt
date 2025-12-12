@@ -64,6 +64,15 @@ class MainActivity : ComponentActivity() {
     // 执行记录列表
     private val executionRecords = mutableStateOf<List<ExecutionRecord>>(emptyList())
 
+    // 是否正在执行（点击发送后立即为 true）
+    private val isExecuting = mutableStateOf(false)
+
+    // 当前执行的记录 ID（用于停止后跳转）
+    private val currentRecordId = mutableStateOf<String?>(null)
+
+    // 是否需要跳转到记录详情（悬浮窗停止后触发）
+    private val shouldNavigateToRecord = mutableStateOf(false)
+
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         Log.d(TAG, "Shizuku binder received")
         shizukuAvailable.value = true
@@ -165,6 +174,22 @@ class MainActivity : ComponentActivity() {
         val logs by agent?.logs?.collectAsState() ?: remember { mutableStateOf(emptyList<String>()) }
         val records by remember { executionRecords }
         val isShizukuAvailable = shizukuAvailable.value && checkShizukuPermission()
+        val executing by remember { isExecuting }
+        val navigateToRecord by remember { shouldNavigateToRecord }
+        val recordId by remember { currentRecordId }
+
+        // 监听跳转事件
+        LaunchedEffect(navigateToRecord, recordId) {
+            if (navigateToRecord && recordId != null) {
+                // 找到对应的记录并跳转
+                val record = records.find { it.id == recordId }
+                if (record != null) {
+                    selectedRecord = record
+                    currentScreen = Screen.History
+                }
+                shouldNavigateToRecord.value = false
+            }
+        }
 
         // 首次进入且 Shizuku 未连接时，显示帮助引导（只显示一次）
         LaunchedEffect(Unit) {
@@ -246,10 +271,14 @@ class MainActivity : ComponentActivity() {
                                     onExecute = { instruction ->
                                         runAgent(instruction, settings.apiKey, settings.baseUrl, settings.model, settings.maxSteps)
                                     },
-                                    onStop = { mobileAgent.value?.stop() },
+                                    onStop = {
+                                        mobileAgent.value?.stop()
+                                    },
                                     shizukuAvailable = isShizukuAvailable,
+                                    currentModel = settings.model,
                                     onRefreshShizuku = { refreshShizukuStatus() },
-                                    onShizukuRequired = { showShizukuHelpDialog = true }
+                                    onShizukuRequired = { showShizukuHelpDialog = true },
+                                    isExecuting = executing
                                 )
                             }
                             Screen.Capabilities -> CapabilitiesScreen()
@@ -270,7 +299,16 @@ class MainActivity : ComponentActivity() {
                                     settingsManager.updateCloudCrashReportEnabled(enabled)
                                     App.getInstance().updateCloudCrashReportEnabled(enabled)
                                 },
+                                onUpdateRootModeEnabled = { settingsManager.updateRootModeEnabled(it) },
+                                onUpdateSuCommandEnabled = { settingsManager.updateSuCommandEnabled(it) },
                                 shizukuAvailable = isShizukuAvailable,
+                                shizukuPrivilegeLevel = if (isShizukuAvailable) {
+                                    when (deviceController.getShizukuPrivilegeLevel()) {
+                                        DeviceController.ShizukuPrivilegeLevel.ROOT -> "ROOT"
+                                        DeviceController.ShizukuPrivilegeLevel.ADB -> "ADB"
+                                        else -> "NONE"
+                                    }
+                                } else "NONE",
                                 onFetchModels = { onSuccess, onError ->
                                     lifecycleScope.launch {
                                         val result = VLMClient.fetchModels(settings.baseUrl, settings.apiKey)
@@ -408,6 +446,9 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 立即设置执行状态为 true，显示停止按钮
+        isExecuting.value = true
+
         val vlmClient = VLMClient(
             apiKey = apiKey,
             baseUrl = baseUrl.ifBlank { "https://dashscope.aliyuncs.com/compatible-mode/v1" },
@@ -430,6 +471,9 @@ class MainActivity : ComponentActivity() {
             status = ExecutionStatus.RUNNING
         )
 
+        // 保存当前记录 ID，用于停止后跳转
+        currentRecordId.value = record.id
+
         // 取消之前的任务（如果有）
         currentExecutionJob?.cancel()
 
@@ -444,11 +488,13 @@ class MainActivity : ComponentActivity() {
                 // 更新记录状态
                 val agentState = mobileAgent.value?.state?.value
                 val steps = agentState?.executionSteps ?: emptyList()
+                val currentLogs = mobileAgent.value?.logs?.value ?: emptyList()
 
                 val updatedRecord = record.copy(
                     endTime = System.currentTimeMillis(),
                     status = if (result.success) ExecutionStatus.COMPLETED else ExecutionStatus.FAILED,
                     steps = steps,
+                    logs = currentLogs,
                     resultMessage = result.message
                 )
                 executionRepository.saveRecord(updatedRecord)
@@ -456,36 +502,54 @@ class MainActivity : ComponentActivity() {
 
                 Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
 
+                // 重置执行状态
+                isExecuting.value = false
+
                 // 延迟3秒后清空日志，恢复默认状态
                 kotlinx.coroutines.delay(3000)
                 mobileAgent.value?.clearLogs()
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // 用户取消任务
-                val agentState = mobileAgent.value?.state?.value
-                val steps = agentState?.executionSteps ?: emptyList()
+                // 用户取消任务 - 使用 NonCancellable 确保清理操作完成
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    val agentState = mobileAgent.value?.state?.value
+                    val steps = agentState?.executionSteps ?: emptyList()
+                    val currentLogs = mobileAgent.value?.logs?.value ?: emptyList()
 
-                val updatedRecord = record.copy(
-                    endTime = System.currentTimeMillis(),
-                    status = ExecutionStatus.STOPPED,
-                    steps = steps,
-                    resultMessage = "用户停止"
-                )
-                executionRepository.saveRecord(updatedRecord)
-                executionRecords.value = executionRepository.getAllRecords()
+                    println("[MainActivity] 取消任务 - steps: ${steps.size}, logs: ${currentLogs.size}")
 
-                Toast.makeText(this@MainActivity, "任务已停止", Toast.LENGTH_SHORT).show()
-                mobileAgent.value?.clearLogs()
-                // 重新抛出取消异常（协程规范）
-                throw e
+                    val updatedRecord = record.copy(
+                        endTime = System.currentTimeMillis(),
+                        status = ExecutionStatus.STOPPED,
+                        steps = steps,
+                        logs = currentLogs,
+                        resultMessage = "已取消"
+                    )
+                    executionRepository.saveRecord(updatedRecord)
+                    executionRecords.value = executionRepository.getAllRecords()
+
+                    // 重置执行状态
+                    isExecuting.value = false
+
+                    Toast.makeText(this@MainActivity, "任务已停止", Toast.LENGTH_SHORT).show()
+                    mobileAgent.value?.clearLogs()
+
+                    // 触发跳转到记录详情页
+                    shouldNavigateToRecord.value = true
+                }
             } catch (e: Exception) {
                 // 更新失败记录
+                val currentLogs = mobileAgent.value?.logs?.value ?: emptyList()
                 val updatedRecord = record.copy(
                     endTime = System.currentTimeMillis(),
                     status = ExecutionStatus.FAILED,
+                    logs = currentLogs,
                     resultMessage = "错误: ${e.message}"
                 )
                 executionRepository.saveRecord(updatedRecord)
                 executionRecords.value = executionRepository.getAllRecords()
+
+                // 重置执行状态
+                isExecuting.value = false
 
                 Toast.makeText(this@MainActivity, "错误: ${e.message}", Toast.LENGTH_LONG).show()
 

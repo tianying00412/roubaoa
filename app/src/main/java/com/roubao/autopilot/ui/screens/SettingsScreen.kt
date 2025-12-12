@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,7 +57,10 @@ fun SettingsScreen(
     onUpdateThemeMode: (ThemeMode) -> Unit,
     onUpdateMaxSteps: (Int) -> Unit,
     onUpdateCloudCrashReport: (Boolean) -> Unit,
+    onUpdateRootModeEnabled: (Boolean) -> Unit,
+    onUpdateSuCommandEnabled: (Boolean) -> Unit,
     shizukuAvailable: Boolean,
+    shizukuPrivilegeLevel: String = "ADB", // "ADB", "ROOT", "NONE"
     onFetchModels: ((onSuccess: (List<String>) -> Unit, onError: (String) -> Unit) -> Unit)? = null
 ) {
     val colors = BaoziTheme.colors
@@ -67,6 +71,8 @@ fun SettingsScreen(
     var showBaseUrlDialog by remember { mutableStateOf(false) }
     var showShizukuHelpDialog by remember { mutableStateOf(false) }
     var showOverlayHelpDialog by remember { mutableStateOf(false) }
+    var showRootModeWarningDialog by remember { mutableStateOf(false) }
+    var showSuCommandWarningDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -133,6 +139,223 @@ fun SettingsScreen(
                 subtitle = "${settings.maxSteps} 步",
                 onClick = { showMaxStepsDialog = true }
             )
+        }
+
+        // Shizuku 高级设置分组（仅在 Shizuku 可用时显示）
+        if (shizukuAvailable) {
+            item {
+                SettingsSection(title = "Shizuku 高级选项")
+            }
+
+            // 显示当前权限级别
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.backgroundCard)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    when (shizukuPrivilegeLevel) {
+                                        "ROOT" -> colors.error.copy(alpha = 0.15f)
+                                        else -> colors.primary.copy(alpha = 0.15f)
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = when (shizukuPrivilegeLevel) {
+                                    "ROOT" -> colors.error
+                                    else -> colors.primary
+                                },
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "当前权限级别",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = when (shizukuPrivilegeLevel) {
+                                    "ROOT" -> "Root 模式 (UID 0)"
+                                    "ADB" -> "ADB 模式 (UID 2000)"
+                                    else -> "未连接"
+                                },
+                                fontSize = 13.sp,
+                                color = when (shizukuPrivilegeLevel) {
+                                    "ROOT" -> colors.error
+                                    else -> colors.textSecondary
+                                },
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Root 模式开关（仅在 Shizuku 以 Root 权限运行时可用）
+            item {
+                val isShizukuRoot = shizukuPrivilegeLevel == "ROOT"
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = colors.backgroundCard)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (isShizukuRoot) colors.error.copy(alpha = 0.15f)
+                                    else colors.textHint.copy(alpha = 0.15f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isShizukuRoot) colors.error else colors.textHint,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Root 模式",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isShizukuRoot) colors.textPrimary else colors.textHint
+                            )
+                            Text(
+                                text = when {
+                                    !isShizukuRoot -> "需要 Shizuku 以 Root 权限运行"
+                                    settings.rootModeEnabled -> "已启用高级权限"
+                                    else -> "启用后可使用 Root 功能"
+                                },
+                                fontSize = 13.sp,
+                                color = when {
+                                    !isShizukuRoot -> colors.textHint
+                                    settings.rootModeEnabled -> colors.error
+                                    else -> colors.textSecondary
+                                },
+                                maxLines = 1
+                            )
+                        }
+                        Switch(
+                            checked = settings.rootModeEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    showRootModeWarningDialog = true
+                                } else {
+                                    onUpdateRootModeEnabled(false)
+                                }
+                            },
+                            enabled = isShizukuRoot,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.error,
+                                checkedTrackColor = colors.error.copy(alpha = 0.5f),
+                                uncheckedThumbColor = colors.textHint,
+                                uncheckedTrackColor = colors.backgroundInput,
+                                disabledCheckedThumbColor = colors.textHint,
+                                disabledCheckedTrackColor = colors.backgroundInput,
+                                disabledUncheckedThumbColor = colors.textHint.copy(alpha = 0.5f),
+                                disabledUncheckedTrackColor = colors.backgroundInput.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // su -c 开关（仅在 Root 模式开启时显示）
+            if (settings.rootModeEnabled) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colors.backgroundCard)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.error.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = colors.error,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "允许 su -c 命令",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.textPrimary
+                                )
+                                Text(
+                                    text = if (settings.suCommandEnabled) "AI 可执行 Root 命令" else "禁止执行 su -c",
+                                    fontSize = 13.sp,
+                                    color = if (settings.suCommandEnabled) colors.error else colors.textSecondary,
+                                    maxLines = 1
+                                )
+                            }
+                            Switch(
+                                checked = settings.suCommandEnabled,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) {
+                                        showSuCommandWarningDialog = true
+                                    } else {
+                                        onUpdateSuCommandEnabled(false)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = colors.error,
+                                    checkedTrackColor = colors.error.copy(alpha = 0.5f),
+                                    uncheckedThumbColor = colors.textHint,
+                                    uncheckedTrackColor = colors.backgroundInput
+                                )
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // API 设置分组
@@ -443,6 +666,28 @@ fun SettingsScreen(
     // 悬浮窗权限帮助对话框
     if (showOverlayHelpDialog) {
         OverlayHelpDialog(onDismiss = { showOverlayHelpDialog = false })
+    }
+
+    // Root 模式警告对话框
+    if (showRootModeWarningDialog) {
+        RootModeWarningDialog(
+            onDismiss = { showRootModeWarningDialog = false },
+            onConfirm = {
+                onUpdateRootModeEnabled(true)
+                showRootModeWarningDialog = false
+            }
+        )
+    }
+
+    // su -c 命令警告对话框
+    if (showSuCommandWarningDialog) {
+        SuCommandWarningDialog(
+            onDismiss = { showSuCommandWarningDialog = false },
+            onConfirm = {
+                onUpdateSuCommandEnabled(true)
+                showSuCommandWarningDialog = false
+            }
+        )
     }
 }
 
@@ -1517,6 +1762,146 @@ fun BaseUrlDialog(
                 enabled = url.isNotBlank()
             ) {
                 Text("确定", color = if (url.isNotBlank()) colors.primary else colors.textHint)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = colors.textSecondary)
+            }
+        }
+    )
+}
+
+/**
+ * Root 模式警告对话框
+ */
+@Composable
+fun RootModeWarningDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val colors = BaoziTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.backgroundCard,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = colors.error,
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                "启用 Root 模式",
+                color = colors.error,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "Root 模式将允许应用使用更高级的系统权限。",
+                    fontSize = 14.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Text(
+                    text = "警告：",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.error
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                BulletPoint("Root 权限可能导致系统不稳定")
+                BulletPoint("不当操作可能损坏设备数据")
+                BulletPoint("请确保您了解 Root 权限的风险")
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "仅在您完全了解风险并需要高级功能时才启用此选项。",
+                    fontSize = 13.sp,
+                    color = colors.textSecondary
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.error)
+            ) {
+                Text("我了解风险，启用", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = colors.textSecondary)
+            }
+        }
+    )
+}
+
+/**
+ * su -c 命令警告对话框
+ */
+@Composable
+fun SuCommandWarningDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val colors = BaoziTheme.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.backgroundCard,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = colors.error,
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                "允许 su -c 命令",
+                color = colors.error,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "此选项将允许 AI 执行 su -c 命令，这意味着 AI 可以以 Root 权限执行任意 Shell 命令。",
+                    fontSize = 14.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                Text(
+                    text = "极度危险：",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.error
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                BulletPoint("AI 可能执行危险的系统命令")
+                BulletPoint("可能导致数据丢失或系统损坏")
+                BulletPoint("可能被恶意指令利用")
+                BulletPoint("不建议在日常使用中启用")
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "强烈建议：仅在完全可控的测试环境中使用，并在使用完毕后立即关闭。",
+                    fontSize = 13.sp,
+                    color = colors.error,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.error)
+            ) {
+                Text("我了解风险，启用", color = Color.White)
             }
         },
         dismissButton = {

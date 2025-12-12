@@ -1,6 +1,7 @@
 package com.roubao.autopilot.tools
 
 import com.roubao.autopilot.controller.DeviceController
+import com.roubao.autopilot.data.SettingsManager
 
 /**
  * Shell 命令工具
@@ -8,7 +9,10 @@ import com.roubao.autopilot.controller.DeviceController
  * 通过 Shizuku 执行 shell 命令
  * 注意：这是一个底层工具，主要供其他工具或高级场景使用
  */
-class ShellTool(private val deviceController: DeviceController) : Tool {
+class ShellTool(
+    private val deviceController: DeviceController,
+    private val settingsManager: SettingsManager? = null
+) : Tool {
 
     override val name = "shell"
     override val displayName = "Shell 命令"
@@ -41,8 +45,8 @@ class ShellTool(private val deviceController: DeviceController) : Tool {
         "echo "             // 输出
     )
 
-    // 黑名单：禁止的命令（安全考虑）
-    private val BLOCKED_COMMANDS = listOf(
+    // 基础黑名单：始终禁止的危险命令
+    private val BASE_BLOCKED_COMMANDS = listOf(
         "rm -rf",
         "rm -r /",
         "format",
@@ -51,9 +55,25 @@ class ShellTool(private val deviceController: DeviceController) : Tool {
         "reboot",
         "shutdown",
         "> /dev",
-        "chmod 777 /",
-        "su -c"
+        "chmod 777 /"
     )
+
+    // su -c 命令（需要特殊权限才能使用）
+    private val SU_COMMAND = "su -c"
+
+    /**
+     * 获取当前生效的黑名单
+     * 根据设置决定是否允许 su -c
+     */
+    private fun getBlockedCommands(): List<String> {
+        val settings = settingsManager?.settings?.value
+        val suEnabled = settings?.rootModeEnabled == true && settings.suCommandEnabled == true
+        return if (suEnabled) {
+            BASE_BLOCKED_COMMANDS // su -c 已启用，不在黑名单中
+        } else {
+            BASE_BLOCKED_COMMANDS + SU_COMMAND // su -c 禁用
+        }
+    }
 
     override suspend fun execute(params: Map<String, Any?>): ToolResult {
         val command = params["command"] as? String
@@ -84,10 +104,15 @@ class ShellTool(private val deviceController: DeviceController) : Tool {
      */
     private fun checkSecurity(command: String): String? {
         val lowerCmd = command.lowercase().trim()
+        val blockedCommands = getBlockedCommands()
 
         // 检查黑名单
-        for (blocked in BLOCKED_COMMANDS) {
+        for (blocked in blockedCommands) {
             if (lowerCmd.contains(blocked.lowercase())) {
+                // 特殊提示 su -c 命令
+                if (blocked == SU_COMMAND) {
+                    return "安全限制：su -c 命令需要在设置中开启「Root 模式」和「允许 su -c」"
+                }
                 return "安全限制：禁止执行此类命令"
             }
         }

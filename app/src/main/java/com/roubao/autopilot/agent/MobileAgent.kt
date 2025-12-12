@@ -264,6 +264,18 @@ class MobileAgent(
                 executeAction(action, infoPool)
                 infoPool.lastAction = action
 
+                // 立即记录执行步骤（outcome 暂时为 "?" 表示进行中）
+                val currentStepIndex = _state.value.executionSteps.size
+                val executionStep = ExecutionStep(
+                    stepNumber = step + 1,
+                    timestamp = System.currentTimeMillis(),
+                    action = action.type,
+                    description = executorResult.description,
+                    thought = executorResult.thought,
+                    outcome = "?" // 进行中
+                )
+                updateState { copy(executionSteps = executionSteps + executionStep) }
+
                 // 等待动作生效
                 delay(if (step == 0) 5000 else 2000)
 
@@ -314,16 +326,16 @@ class MobileAgent(
                 infoPool.errorDescriptions.add(reflectResult.errorDescription)
                 infoPool.progressStatus = infoPool.completedPlan
 
-                // 记录执行步骤
-                val executionStep = ExecutionStep(
-                    stepNumber = step + 1,
-                    timestamp = System.currentTimeMillis(),
-                    action = action.type,
-                    description = executorResult.description,
-                    thought = executorResult.thought,
-                    outcome = reflectResult.outcome
-                )
-                updateState { copy(executionSteps = executionSteps + executionStep) }
+                // 更新执行步骤的 outcome（之前添加的步骤 outcome 是 "?"）
+                updateState {
+                    val updatedSteps = executionSteps.toMutableList()
+                    if (currentStepIndex < updatedSteps.size) {
+                        updatedSteps[currentStepIndex] = updatedSteps[currentStepIndex].copy(
+                            outcome = reflectResult.outcome
+                        )
+                    }
+                    copy(executionSteps = updatedSteps)
+                }
 
                 // 9. Notetaker (可选)
                 if (useNotetaker && reflectResult.outcome == "A" && action.type != "answer") {

@@ -214,8 +214,33 @@ fun HistoryRecordCard(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 状态标签
+                    val (statusText, statusColor) = when (record.status) {
+                        ExecutionStatus.COMPLETED -> "已完成" to colors.success
+                        ExecutionStatus.FAILED -> "失败" to colors.error
+                        ExecutionStatus.STOPPED -> "已取消" to colors.warning
+                        ExecutionStatus.RUNNING -> "执行中" to colors.primary
+                    }
+                    Text(
+                        text = statusText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = statusColor,
+                        modifier = Modifier
+                            .background(
+                                statusColor.copy(alpha = 0.15f),
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                    Text(
+                        text = "·",
+                        fontSize = 12.sp,
+                        color = colors.textHint
+                    )
                     Text(
                         text = record.formattedStartTime,
                         fontSize = 12.sp,
@@ -268,6 +293,9 @@ fun HistoryDetailScreen(
     onBack: () -> Unit
 ) {
     val colors = BaoziTheme.colors
+    // Tab 状态：0 = 时间线，1 = 日志
+    var selectedTab by remember { mutableStateOf(0) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -359,22 +387,124 @@ fun HistoryDetailScreen(
             }
         }
 
-        // 时间线标题
-        Text(
-            text = "执行时间线",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = colors.textPrimary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-
-        // 时间线列表
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        // Tab 切换
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(record.steps) { step ->
-                TimelineItem(step = step, isLast = step == record.steps.lastOrNull())
+            // 时间线 Tab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (selectedTab == 0) colors.primary
+                        else colors.backgroundCard
+                    )
+                    .clickable { selectedTab = 0 }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "执行时间线",
+                    fontSize = 14.sp,
+                    fontWeight = if (selectedTab == 0) FontWeight.Medium else FontWeight.Normal,
+                    color = if (selectedTab == 0) Color.White else colors.textSecondary
+                )
+            }
+
+            // 日志 Tab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (selectedTab == 1) colors.primary
+                        else colors.backgroundCard
+                    )
+                    .clickable { selectedTab = 1 }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "执行日志",
+                    fontSize = 14.sp,
+                    fontWeight = if (selectedTab == 1) FontWeight.Medium else FontWeight.Normal,
+                    color = if (selectedTab == 1) Color.White else colors.textSecondary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 内容区域
+        when (selectedTab) {
+            0 -> {
+                // 时间线列表
+                if (record.steps.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无执行步骤",
+                            fontSize = 14.sp,
+                            color = colors.textHint
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        items(record.steps) { step ->
+                            TimelineItem(step = step, isLast = step == record.steps.lastOrNull())
+                        }
+                    }
+                }
+            }
+            1 -> {
+                // 日志列表
+                if (record.logs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无执行日志",
+                            fontSize = 14.sp,
+                            color = colors.textHint
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        items(record.logs) { log ->
+                            val logColor = when {
+                                log.contains("❌") -> colors.error
+                                log.contains("✅") -> colors.success
+                                log.contains("📋") || log.contains("🎬") -> colors.secondary
+                                log.contains("Step") || log.contains("=====") -> colors.primary
+                                log.contains("⛔") -> colors.error
+                                else -> colors.textSecondary
+                            }
+                            Text(
+                                text = log,
+                                fontSize = 12.sp,
+                                color = logColor,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -400,6 +530,7 @@ fun TimelineItem(
                         when (step.outcome) {
                             "A" -> colors.success
                             "B" -> colors.warning
+                            "?" -> colors.textHint // 进行中被取消
                             else -> colors.error
                         }
                     )
